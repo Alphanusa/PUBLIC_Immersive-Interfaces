@@ -1,6 +1,11 @@
 
 
-struct Data 
+// Shared by every game version (no #version here: 26.3 rejects it in includes).
+
+#ifndef IMMERSIVE_INTERFACES_GLSL
+#define IMMERSIVE_INTERFACES_GLSL
+
+struct Data
 {
    vec3 position;
    vec2 uv0;
@@ -13,15 +18,44 @@ float margin = 0;
 
 Data null = Data(vec3(0),vec2(0),vec4(0));
 
+// Corner (0-3) of the GUI quad the current vertex belongs to, in the order the game
+// emits them: top-left, bottom-left, bottom-right, top-right.
+//
+// - Up to 26.2 on OpenGL the shader is plain GLSL: gl_VertexID % 4.
+// - 26.2 on Vulkan and every backend of 26.3+ compile through shaderc (VULKAN is defined).
+//   Since 26.3 the GUI packs all vertex formats into one shared buffer, so a draw's base
+//   vertex is no longer a multiple of 4 and gl_VertexIndex % 4 points at the wrong corner
+//   (stretched/missing chests, villager trades, flickering hotbar...). The base vertex has
+//   to be subtracted. gl_BaseVertex needs #version 460 and the device's shader draw
+//   parameters, which the game advertises with RENDERPEARL_INSTANCE_INDEX_INCLUDES_BASE_INSTANCE
+//   (always on Vulkan, on OpenGL when GL_ARB_shader_draw_parameters is available).
+int quadCorner() {
+#if defined(VULKAN) && defined(RENDERPEARL_INSTANCE_INDEX_INCLUDES_BASE_INSTANCE) && __VERSION__ >= 460
+    return (gl_VertexIndex - gl_BaseVertex) % 4;
+#elif defined(VULKAN)
+    return gl_VertexIndex % 4;
+#else
+    return gl_VertexID % 4;
+#endif
+}
+
+// Center of the GUI in GUI pixels, the way the game centers its screens: (size - imageSize) / 2
+// with integer division. round() fails whenever the scaled GUI size is odd (0.5 rounds in an
+// implementation-defined direction), which made the chest row detection always fall back to
+// the 1-row texture on some window sizes.
+float guiCenter(float screenSize) {
+    return floor(screenSize/2 + 0.49);
+}
+
 bool posCheckX(vec3 position,vec2 screen, float offset,float size) {
-    return ( abs( (round(screen.x/2)+offset+(size*corners[(gl_VertexIndex - gl_BaseVertex ) % 4].x)) - position.x )<= margin );
+    return ( abs( (guiCenter(screen.x)+offset+(size*corners[quadCorner()].x)) - position.x )<= margin );
 }
 bool posChecky(vec3 position,vec2 screen, float offset,float size) {
-    return ( abs( (round(screen.y/2)+offset+(size*corners[(gl_VertexIndex - gl_BaseVertex ) % 4].y)) - position.y )<= margin );
+    return ( abs( (guiCenter(screen.y)+offset+(size*corners[quadCorner()].y)) - position.y )<= margin+0.5 );
 }
 bool posCheck(vec3 position,vec2 screen, vec2 offset,vec2 size) {
-    return ( abs( (round(screen.x/2)+offset.x+(size.x*corners[(gl_VertexIndex - gl_BaseVertex ) % 4].x)) - position.x )<= margin )&&
-           ( abs( (round(screen.y/2)+offset.y+(size.y*corners[(gl_VertexIndex - gl_BaseVertex ) % 4].y)) - position.y )<= margin );
+    return ( abs( (guiCenter(screen.x)+offset.x+(size.x*corners[quadCorner()].x)) - position.x )<= margin )&&
+           ( abs( (guiCenter(screen.y)+offset.y+(size.y*corners[quadCorner()].y)) - position.y )<= margin );
 }
 bool posCheck(vec3 position,vec2 screen, vec2 offset,float size) {
     return posCheck(position,screen, offset,vec2(size));
@@ -40,8 +74,8 @@ Data interfaces(mat4 ProjMat, float GameTime, sampler2D Sampler0, vec3 Position,
     //vec4 color = round(texture(Sampler0, texCoord0)*255);
 
     //int vertID = int(mod(color.g,4));
-    int vertID = (gl_VertexIndex - gl_BaseVertex ) % 4;
-    
+    int vertID = quadCorner();
+
     vec2 corner = corners[vertID];
 
     vec4 color = round(texture(Sampler0, texCoord0-(0.00001*corner))*255);
@@ -343,7 +377,7 @@ Data interfaces_text(mat4 ProjMat, float GameTime, sampler2D Sampler0, vec3 Posi
 
     vec4 textColor = Color;
 
-    int vertID = (gl_VertexIndex - gl_BaseVertex ) % 4;
+    int vertID = quadCorner();
 
     vec2 corner = corners[vertID];
     vec4 color = round(texture(Sampler0, texCoord0-(0.001*corner))*255);
@@ -418,3 +452,5 @@ Data interfaces_text(mat4 ProjMat, float GameTime, sampler2D Sampler0, vec3 Posi
 
 
 }
+
+#endif // IMMERSIVE_INTERFACES_GLSL
