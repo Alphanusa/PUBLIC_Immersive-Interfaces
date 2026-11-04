@@ -1,5 +1,7 @@
 #version 460
 #extension GL_ARB_separate_shader_objects : require
+// 460 (not vanilla's 330): interfaces.glsl reads gl_BaseVertex to find the quad corner,
+// required since 26.3 shares one GUI vertex buffer between all vertex formats.
 
 #include <minecraft:dynamictransforms.glsl>
 #include <minecraft:globals.glsl>
